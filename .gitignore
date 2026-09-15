@@ -1,0 +1,44 @@
+# Python and local tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Local datasets, features, model weights, and experiment outputs
+*.npy
+*.npz
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+list/*.csv
+data/
+model/
+checkpoints/
+outputs/
+runs/
+artifacts/
+
+# Generated logs and paper/build products
+*.log
+*.jsonl
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
+paper/
+
+# Local notes and research caches
+last_conversation.md
+docs/research_*/
