@@ -1,6 +1,6 @@
 # Hurdle-TracePoint
 
-PyTorch implementation of **Hurdle-TracePoint: Latent Event Modeling with Structural-Zero Gating for Weakly Supervised Video Anomaly Detection**.
+PyTorch implementation of **Hurdle-TracePoint: Presence-Gated Event Scoring for Weakly Supervised Video Anomaly Detection**.
 
 Hurdle-TracePoint learns temporal anomaly scores from video-level labels. It adds an event branch to [VadCLIP](https://github.com/nwpu-zxr/VadCLIP): the branch estimates whether an anomaly is present in a video, then uses that estimate to weight candidate events before combining them into a score over time.
 
