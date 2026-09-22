@@ -1,8 +1,8 @@
 # Hurdle-TracePoint
 
-Official PyTorch implementation of **Hurdle-TracePoint: Latent Event Modeling with Structural-Zero Gating for Weakly Supervised Video Anomaly Detection**.
+PyTorch implementation of **Hurdle-TracePoint: Latent Event Modeling with Structural-Zero Gating for Weakly Supervised Video Anomaly Detection**.
 
-Hurdle-TracePoint learns temporal anomaly scores from video-level labels. It adds a latent event branch to [VadCLIP](https://github.com/nwpu-zxr/VadCLIP): the branch estimates whether an anomaly is present in a video, scores candidate events, and combines them into temporal class-specific coverage.
+Hurdle-TracePoint learns temporal anomaly scores from video-level labels. It adds an event branch to [VadCLIP](https://github.com/nwpu-zxr/VadCLIP): the branch estimates whether an anomaly is present in a video, then uses that estimate to weight candidate events before combining them into a score over time.
 
 ![Hurdle-TracePoint overview](assets/overview.png)
 
@@ -10,66 +10,32 @@ Hurdle-TracePoint learns temporal anomaly scores from video-level labels. It add
 
 The event branch has three main steps:
 
-1. **Estimate presence.** Pool features from the complete video to estimate whether an anomaly, and each anomaly class, occurs.
-2. **Score event candidates.** A gated recurrent unit (GRU) summarizes the visual prefix up to each possible start time. The branch scores candidates defined by their start, class, and duration.
-3. **Build temporal scores.** Scale candidate weights by the presence estimates, then combine overlapping intervals into class-specific coverage and an overall event score.
+1. **Estimate presence.** Pool features from the complete video to estimate whether any anomaly, and each anomaly class, occurs.
+2. **Score event candidates.** A gated recurrent unit (GRU) summarizes the visual prefix: the features up to each possible start time. The branch uses this representation to score candidates defined by their start, class, and duration.
+3. **Build temporal scores.** Scale candidate weights by the presence estimates, then combine overlapping intervals into class-specific coverage and an overall event score. In the figure, $\mathcal{A}(u)$ contains the start–duration pairs covering snippet $u$.
 
 The event branch shares CLIP features and class-text information with the VadCLIP frame detector. Each branch produces its own scores, and event losses update only the event branch. Presence estimation uses the complete video, so inference is offline.
 
 The event model is in [src/tracepoint.py](src/tracepoint.py), and its connection to VadCLIP is in [src/model.py](src/model.py).
 
-## Repository Layout
-
-```text
-Hurdle-TracePoint/
-|-- assets/                 # README figures
-|-- src/                    # Training, evaluation, model, CLIP, and utility code
-|-- tests/                  # Unit tests for the TracePoint event process
-|-- list/                   # Instructions for local dataset lists and annotations
-|-- LICENSE                 # Apache License 2.0 for project files
-|-- THIRD_PARTY_NOTICES.md  # Notices for vendored third-party components
-|-- requirements.txt        # Python dependencies
-`-- README.md
-```
-
-## Environment
+## Installation
 
 Use Python 3.10 or newer. A CUDA-capable GPU is recommended for training.
 
 ```bash
 git clone https://github.com/SVIL2024/Hurdle-TracePoint.git
 cd Hurdle-TracePoint
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
 ```
 
-If your CUDA driver, GPU, or platform differs, install a PyTorch build matching your machine first, then install the remaining packages from `requirements.txt`. The CLIP implementation downloads its pretrained weights on first use.
-
-Check PyTorch and CUDA visibility:
-
-```bash
-python - <<'PY'
-import torch
-print('torch:', torch.__version__)
-print('cuda build:', torch.version.cuda)
-print('cuda available:', torch.cuda.is_available())
-print('device count:', torch.cuda.device_count())
-if torch.cuda.is_available():
-    print('device 0:', torch.cuda.get_device_name(0))
-PY
-```
+Install a compatible PyTorch and torchvision build, together with NumPy, SciPy,
+scikit-learn, pandas, tqdm, Pillow, OpenCV, and pytest. Choose the PyTorch build
+for your hardware using the [PyTorch installation guide](https://pytorch.org/get-started/locally/). The CLIP implementation downloads its pretrained weights on first use.
 
 All commands below run from the repository root.
 
-## Data Preparation
-
-The project expects pre-extracted CLIP ViT-B/16 features and dataset annotations for:
-
-  * UCF-Crime
-  * XD-Violence
-
-Dataset files and feature files are external to this repository. Download and use them only under their applicable terms.
+## Data and checkpoints
 
 | Resource | Download | Access code |
 |---|---|---|
@@ -78,9 +44,9 @@ Dataset files and feature files are external to this repository. Download and us
 
 ### Feature lists
 
-Each `.npy` feature file contains a `float32` array of shape `(T, 512)`, where `T` is the number of snippets. Evaluation assumes 16 video frames per snippet.
+The scripts read pre-extracted CLIP ViT-B/16 features. Each `.npy` file contains a `float32` array of shape `(T, 512)`, where `T` is the number of snippets, or short groups of consecutive frames. Evaluation assumes 16 video frames per snippet.
 
-Create training and test CSV files with two columns, `path` and `label`. Paths can be absolute or relative to the repository root. These CSV files are ignored by Git and must not be committed.
+Create training and test CSV files with two columns, `path` and `label`. Paths can be absolute or relative to the repository root.
 
 UCF-Crime example:
 
@@ -115,17 +81,13 @@ By default, the following files are read from `list/`:
 | Temporal intervals | `gt_segment_ucf.npy` | `gt_segment.npy` |
 | Interval class labels | `gt_label_ucf.npy` | `gt_label.npy` |
 
-Keep test videos in the same order as the annotation arrays. Frame labels follow the concatenated test-video order; interval and class-label arrays have corresponding entries for each video.
+Keep test videos in the same order as the annotation arrays. Frame labels follow the concatenated test-video order; interval and class-label arrays have corresponding entries for each video. The training scripts also load these annotations for checkpoint evaluation.
 
 For other locations, use `--train-list`, `--test-list`, `--gt-path`, `--gt-segment-path`, and `--gt-label-path`.
 
-## Pre-trained Models
-
-Place a downloaded checkpoint outside the repository and pass its path through `--model-path` or `--warm-start-path`. Checkpoints are not mirrored in Git.
-
 ## Training
 
-The following commands use the main event configuration: both presence gates, seven duration choices, and a visual prefix without feedback from earlier event predictions.
+The following commands use the paper's main event configuration: both presence gates, seven duration choices, and a visual prefix without feedback from earlier event predictions.
 
 UCF-Crime:
 
@@ -149,22 +111,21 @@ python src/xd_train.py \
 | `--tracepoint-hurdle-gate` | Enable global and class-specific presence gates. |
 | `--tracepoint-no-history` | Use the visual prefix without recurrent feedback from previous event candidates. |
 
-The default duration choices are `1, 2, 4, 8, 16, 32, 64`. Each run trains for 10 epochs by default.
+The default duration choices are `1, 2, 4, 8, 16, 32, 64`. At test time, each value counts snippets in the original feature sequence. Each run trains for 10 epochs by default.
 
-Each output directory may contain:
+Each output directory contains:
 
 ```text
 outputs/ucf_hurdle/
 ├── best.pth          # Selected model checkpoint
-├── last.pth          # Latest model state
 ├── run_config.json   # Training arguments
 └── metrics.jsonl     # Evaluation records and training summaries
 ```
 
-Use a separate output directory for each run. To run comparisons:
+Use a separate output directory for each run. To run the main comparisons:
 
-* **Raw TracePoint:** omit `--tracepoint-hurdle-gate` from the training and evaluation commands.
-* **VadCLIP alone:** omit the event-branch flags.
+- **Raw TracePoint:** omit `--tracepoint-hurdle-gate` from the training and evaluation commands.
+- **VadCLIP alone:** omit the three event-branch flags shown above.
 
 ## Evaluation
 
@@ -180,20 +141,21 @@ python src/xd_test.py \
   --tracepoint --tracepoint-hurdle-gate --tracepoint-no-history
 ```
 
-For a downloaded checkpoint or a different model variant, use the gate, history, duration, and architecture settings from its training configuration.
+For a downloaded checkpoint or a different model variant, use the gate, history, duration, and architecture settings from its training configuration. The examples use the default seven-duration architecture.
 
 The printed frame-level metrics refer to the two VadCLIP frame-detector scores:
 
 | Printed metric | Score being evaluated |
 |---|---|
 | `AUC1`, `AP1` | Visual classification score |
-| `AUC2`, `AP2` | Visual-text alignment score |
+| `AUC2`, `AP2` | Visual–text alignment score |
 
-The released evaluator calls localization with `excludeNormal=False`. Therefore, its default localization mAP follows the all-class protocol: UCF-Crime includes `Normal`, and XD-Violence includes `A`. Anomaly-only numbers must be reported separately with the corresponding evaluation protocol.
+With `--tracepoint`, the localization routine uses the event branch's coverage scores. The paper's localization results use an evaluator that averages only anomaly classes over all test videos.
 
-## Main Results
+## Main results
 
-The following values are reported for the paper's anomaly-only localization protocol using the seven-duration configuration. They are not the default all-class localization values printed by `src/ucf_test.py` and `src/xd_test.py`; use the same checkpoint, configuration, and anomaly-only evaluator before comparing results.
+The paper's event results use the seven-duration configuration and compare the
+same branch with and without presence gates.
 
 | Metric | UCF-Crime | XD-Violence |
 |---|---:|---:|
@@ -206,8 +168,6 @@ For all available options:
 
 ```bash
 python src/ucf_train.py --help
-python src/ucf_test.py --help
-python src/xd_train.py --help
 python src/xd_test.py --help
 ```
 
@@ -221,12 +181,8 @@ python -m unittest discover -s tests -p 'test_*.py'
 
 The tests cover event weights, temporal coverage, padding, recurrent state across chunks, gradients, and checkpoint helpers.
 
-## Privacy and Release Policy
-
-Do not commit absolute local paths, personal contact information, shell transcripts, checkpoints, generated artifacts, or dataset files. Review `git status` and the staged file list before every public push.
-
-## Acknowledgements and License
+## Acknowledgements and license
 
 This implementation builds on [VadCLIP](https://github.com/nwpu-zxr/VadCLIP) and [OpenAI CLIP](https://github.com/openai/CLIP). We also acknowledge [XDVioDet](https://github.com/Roc-Ng/XDVioDet) and [DeepMIL](https://github.com/Roc-Ng/DeepMIL).
 
-Project code is distributed under the [Apache License 2.0](LICENSE). The vendored CLIP components retain their original MIT license; see `THIRD_PARTY_NOTICES.md`.
+Project code is distributed under the [Apache License 2.0](LICENSE). The vendored CLIP components retain their original MIT license.
